@@ -300,7 +300,7 @@ class CanvasSyncer:
     def checkLaterFiles(self):
         if not self.laterFiles:
             return
-        print("These file(s) have later version on canvas:")
+        print("These file(s) have later version on Canvas:")
         for s in self.laterInfo:
             print(s)
         isDownload = "Y" if self.config["y"] else input("Update all?(Y/n) ")
