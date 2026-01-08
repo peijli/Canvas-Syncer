@@ -40,7 +40,7 @@ class AsyncSemClient:
                 num_bytes_downloaded = res.num_bytes_downloaded
                 dst_temp = dst + ".temp"
                 try:
-                    async with aiofiles.open(dst_temp, "+wb") as f:
+                    async with aiofiles.open(dst_temp, "wb") as f:
                         async for chunk in res.aiter_bytes():
                             await f.write(chunk)
                             self.tqdm.update(
@@ -348,7 +348,7 @@ class CanvasSyncer:
         if not self.config["allowImage"]:
             if fileType.split("/")[0] == "image":
                 print(
-                    f"Remove {filename} the download list because of its file type: image."
+                    f"Remove {filename} from the download list because of its file type: image."
                 )
                 return False
         return True
