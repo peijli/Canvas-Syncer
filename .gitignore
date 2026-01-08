@@ -22,7 +22,7 @@ courses/
 venv/
 upload.sh
 dist.py
-*.spec
+venv
 
 accesstoken
 canvas.log
