@@ -36,7 +36,7 @@ setup(
     version=get_version("canvassyncer"),
     url="https://github.com/BoYanZh/Canvas-Syncer",
     license="MIT",
-    description="The async fast canavs file syncer.",
+    description="The async fast canvas file syncer.",
     long_description=get_long_description(),
     long_description_content_type="text/markdown",
     author="SJTU JI Tech",

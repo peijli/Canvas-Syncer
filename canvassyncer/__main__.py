@@ -260,7 +260,7 @@ class CanvasSyncer:
             )
             return
         if fileSize > self.config["filesizeThresh"] * 1000000:
-            aiofiles.open(path, "w").close()
+            open(path, "w").close()
             self.skipfiles.append(
                 f"{self.courseCode[courseID]}{fileName} ({round(fileSize / 1000000, 2)}MB)"
             )
@@ -342,7 +342,7 @@ class CanvasSyncer:
         if not self.config["allowVideo"]:
             if fileType.split("/")[0] == "video":
                 print(
-                    f"Remove {filename} the download list because of its file type: video."
+                    f"Remove {filename} from the download list because of its file type: video."
                 )
                 return False
         if not self.config["allowImage"]:
