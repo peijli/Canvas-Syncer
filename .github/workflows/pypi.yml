@@ -2,6 +2,10 @@ name: Publish Package to Pypi
 
 on: push
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build:
 
