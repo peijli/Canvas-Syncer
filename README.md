@@ -1,50 +1,85 @@
 # Canvas-Syncer
 
-A script that lets you sync your local files with those under the "Files" tab of your course sites on [Canvas](https://umich.instructure.com).
+Sync files from the Files tab of your [Canvas](https://canvas.stanford.edu) courses into a local directory.
 
-This forked version contains bug fixes, modifications to user input and output, as well as a logging function to facilitate futher debugging.
+## Install
 
-## Usage
+```bash
+pip install -e .
+# or
+pip install -r requirements.txt && pip install -e .
+```
 
-**The following bash script would install the latest release version of the original BoYanZh/Canvas-Syncer from `pip`, instead of the version on this repository.**
+Run as an installed command or as a module:
 
 ```bash
 canvassyncer
+python -m canvassyncer
 ```
 
-Then follow the onscreen guide to provide your access token, course name or number, local file storage location, etc.
+## Setup
 
-*Note:*
-1. `courseCode` should be something like `VG100`, `ECE4530J`
-2. `courseID` should be an integer. Check the canvas link of the course. e.g. `courseID = 7` for <https://jicanvas.com/courses/7>.
+1. In Canvas, open **Account → Settings → New Access Token** and create a token.
+2. Store it in the OS keyring (preferred) or set `CANVAS_API_TOKEN`:
 
-### Optional arguments
-
-```text
-  -h, --help            show this help message and exit
-  -r                    recreate config file
-  -y                    confirm all prompts
-  --no-subfolder        do not create a course code named subfolder when synchronizing files
-  -p PATH, --path PATH  appoint config file path
-  -c CONNECTION, --connection CONNECTION
-                        max connection count with server
-  -x PROXY, --proxy PROXY
-                        download proxy
-  -V, --version         show program's version number and exit
-  -d, --debug           show debug information
-  --no-keep-older-version
-                        do not keep older version
+```bash
+canvassyncer login
+# or
+export CANVAS_API_TOKEN='your-token'
 ```
 
-### Canvas Access Token Generation
+3. Create a config file (created automatically on first run, or with `-r`):
 
-Open Your Canvas-Account-Approved Integrations-New Access Token
+```bash
+canvassyncer -r
+```
 
-Or it can be easily achieved with <https://github.com/BoYanZh/JI-Auth> if you are a UM-SJTU-JI student.
+Default config path: `~/.config/canvassyncer/config.json`
 
+```json
+{
+  "canvas_url": "https://canvas.stanford.edu",
+  "download_dir": "~/Courses",
+  "max_file_size_mb": 250,
+  "courses": {
+    "12345": "CS224N",
+    "67890": "EE101"
+  }
+}
+```
 
-## Futher Contributions
+- `courses` maps a **numeric course ID** (from the Canvas URL, e.g. `https://canvas.stanford.edu/courses/12345`) to a local folder name under `download_dir`.
+- Absolute folder paths are used as that course’s root.
+- The access token is **never** stored in this file. Use `canvassyncer login` / `logout`, or `CANVAS_API_TOKEN`.
 
-Please feel free to create issues and pull requests.
+## Usage
 
-> TODO: Compile source code into executable and publish it on either `pip` or the release page of this repository.
+```bash
+canvassyncer              # sync all configured courses
+canvassyncer -y           # accept prompts (skip oversized files, update newer versions)
+canvassyncer -p ./cfg.json
+canvassyncer -x http://proxy:8080
+canvassyncer -d           # debug output
+canvassyncer login
+canvassyncer logout
+canvassyncer -V
+```
+
+On each run the tool:
+
+1. Lists folders and files for each course via the Canvas REST API.
+2. Downloads files that are missing locally.
+3. When Canvas has a newer version, optionally archives the local file as `<mtime>_<filename>` and downloads the update.
+4. Leaves an empty placeholder for files larger than `max_file_size_mb` unless you choose to download them.
+
+## Token resolution
+
+1. Environment variable `CANVAS_API_TOKEN`
+2. OS keyring service `canvassyncer`, account = Canvas host (e.g. `canvas.stanford.edu`)
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
