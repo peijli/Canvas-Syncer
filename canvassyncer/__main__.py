@@ -3,6 +3,7 @@ TODO: Revise documentation and code formatting.
 """
 
 import argparse
+import asyncio
 import json
 # Modules for logging
 import logging.config
@@ -53,7 +54,11 @@ LOGGER_CONFIG = {
 }
 _sentinel = object()
 
-print = partial(print, flush=True)
+__version__ = "2.0.12"
+CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".canvassyncer.json"
+)
+PAGES_PER_TIME = 8
 
 
 def process(s):
@@ -67,29 +72,44 @@ class MultithreadDownloader:
     # blockSize = 512
     blockSize = 1024
 
-    def __init__(self, session, maxThread):
-        self.sess = session
-        self.maxThread = maxThread
-        self.currentDownload = []
-        self.countLock = threading.Lock()
-        self.taskQueue = Queue()
-        self.downloadedCnt = 0
-        self.totalCnt = 0
-        self.totalSize = 0
-        self.tqdm = None
-        self.stopSignal = False
+    async def downloadOne(self, src, dst):
+        async with self.sem:
+            async with self.client.stream("GET", src) as res:
+                if res.status_code >= 400:
+                    return self.failures.append(f"{src} => {dst}")
+                num_bytes_downloaded = res.num_bytes_downloaded
+                dst_temp = dst + ".temp"
+                try:
+                    async with aiofiles.open(dst_temp, "+wb") as f:
+                        async for chunk in res.aiter_bytes():
+                            await f.write(chunk)
+                            self.tqdm.update(
+                                res.num_bytes_downloaded - num_bytes_downloaded
+                            )
+                            num_bytes_downloaded = res.num_bytes_downloaded
+                except Exception as e:
+                    print(e.__class__.__name__)
+                    os.remove(dst_temp)
+                    return
+                os.rename(dst_temp, dst)
 
-    def downloadFile(self, i, queue):
-        while True:
-            if self.stopSignal:
-                self.downloadedCnt = self.totalCnt
-                break
-            src, dst = queue.get()
-            if src is _sentinel:
-                queue.put([src, dst])
-                break
-            self.currentDownload[i] = dst.split('/')[-1].split('\\')[-1]
-            tmpFilePath = ''
+    async def downloadMany(self, infos, totalSize=0):
+        self.tqdm = tqdm(total=totalSize, unit="B", unit_scale=True)
+        self.failures = []
+        await asyncio.gather(
+            *[asyncio.create_task(self.downloadOne(src, dst)) for src, dst in infos]
+        )
+        self.tqdm.close()
+        if self.failures:
+            print(f"Fail to download these {len(self.failures)} file(s):")
+            for text in self.failures:
+                print(text)
+
+    async def json(self, *args, **kwargs):
+        retryTimes = 0
+        checkError = bool(kwargs.pop("checkError", False))
+        debugMode = bool(kwargs.pop("debug", False))
+        while retryTimes <= 5:
             try:
                 # timeout used to be 10
                 r = self.sess.get(src, timeout=50, stream=True)
@@ -112,15 +132,10 @@ class MultithreadDownloader:
                 with self.countLock:
                     self.downloadedCnt += 1
 
-    def init(self):
-        self.taskQueue = Queue()
-        self.downloadedCnt = 0
-        self.totalCnt = 0
-        self.downloadingFileName = 'None'
-        self.totalSize = 0
-        self.stopSignal = False
-        self.tqdm = None
-        self.currentDownload = ['' for i in range(self.maxThread)]
+    async def head(self, *args, **kwargs):
+        async with self.sem:
+            resp = await self.client.head(*args, **kwargs)
+        return resp.headers
 
     def create(self, infos, totalSize=0):
         self.init()
@@ -182,25 +197,20 @@ class CanvasSyncer:
         logger.debug("Initiated CanvasSyncer object.")
         self.confirmAll = config['y']
         self.config = config
-        self.sess = requests.Session()
-        retryStrategy = Retry(total=5,
-                              status_forcelist=[429, 500, 502, 503, 504],
-                              method_whitelist=["HEAD", "GET", "OPTIONS"])
-        adapter = HTTPAdapter(max_retries=retryStrategy)
-        self.sess.mount("https://", adapter)
-        self.sess.mount("http://", adapter)
+        self.client = AsyncSemClient(
+            config["connection_count"], config["token"], config.get("proxy")
+        )
         self.downloadSize = 0
         self.laterDownloadSize = 0
         self.courseCode = {}
         self.baseurl = self.config['canvasURL'] + '/api/v1'
         self.downloadDir = os.path.normpath(self.config['downloadDir'] + "\\")
         self.newInfo = []
+        self.newFiles = []
         self.laterFiles = []
         self.laterInfo = []
         self.skipfiles = []
-        self.filesLock = threading.Lock()
-        self.taskQueue = Queue()
-        self.downloader = MultithreadDownloader(self.sess, MAX_DOWNLOAD_COUNT)
+        self.totalFileCount = 0
         if not os.path.exists(self.downloadDir):
             os.mkdir(self.downloadDir)
             logger.info(f"Created new directory at {self.downloadDir}.")
@@ -254,13 +264,16 @@ class CanvasSyncer:
         logger.debug('Method CanvasSyncer.getLocalFiles called.')
         localFiles = []
         for folder in folders.values():
-            if self.config['no_subfolder']:
+            if self.config["no_subfolder"]:
                 path = os.path.join(self.downloadDir, folder[1:])
             else:
-                path = os.path.join(self.downloadDir,
-                                    f"{self.courseCode[courseID]}{folder}")
+                path = os.path.join(
+                    self.downloadDir, f"{self.courseCode[courseID]}{folder}"
+                )
+            if not os.path.exists(path):
+                os.makedirs(path)
             localFiles += [
-                os.path.join(folder, f).replace('\\', '/').replace('//', '/')
+                os.path.join(folder, f).replace("\\", "/").replace("//", "/")
                 for f in os.listdir(path)
                 if not os.path.isdir(os.path.join(path, f))
             ]
@@ -412,6 +425,83 @@ class CanvasSyncer:
             res.append((fileUrl, path))
         return res
 
+    async def getCourseIdByCourseCode(self):
+        lowerCourseCodes = [s.lower() for s in self.config["courseCodes"]]
+        self.courseCode = await self.dictFromPages(
+            self.getCourseIdByCourseCodeHelper, lowerCourseCodes
+        )
+
+    async def getCourseCodeByCourseIDHelper(self, courseID):
+        url = f"{self.baseUrl}/courses/{courseID}"
+        clientRes = await self.client.json(url, debug=self.config["debug"])
+        if clientRes.get("course_code") is None:
+            return
+        self.courseCode[courseID] = clientRes["course_code"]
+
+    async def getCourseCodeByCourseID(self):
+        await asyncio.gather(
+            *[
+                asyncio.create_task(self.getCourseCodeByCourseIDHelper(courseID))
+                for courseID in self.config["courseIDs"]
+            ]
+        )
+
+    async def getCourseID(self):
+        coros = []
+        if self.config.get("courseCodes"):
+            coros.append(self.getCourseIdByCourseCode())
+        if self.config.get("courseIDs"):
+            coros.append(self.getCourseCodeByCourseID())
+        await asyncio.gather(*coros)
+
+    async def getCourseTaskInfoHelper(
+        self, courseID, localFiles, fileName, fileUrl, fileModifiedTimeStamp
+    ):
+        if not fileUrl:
+            return
+        if self.config["no_subfolder"]:
+            path = os.path.join(self.downloadDir, fileName[1:])
+        else:
+            path = os.path.join(
+                self.downloadDir, f"{self.courseCode[courseID]}{fileName}"
+            )
+        path = path.replace("\\", "/").replace("//", "/")
+        if fileName in localFiles and fileModifiedTimeStamp <= os.path.getctime(path):
+            return
+        response = await self.client.head(fileUrl)
+        fileSize = int(response.get("content-length", 0))
+        if fileName in localFiles:
+            self.laterDownloadSize += fileSize
+            self.laterFiles.append((fileUrl, path))
+            self.laterInfo.append(
+                f"{self.courseCode[courseID]}{fileName} ({round(fileSize / 1000000, 2)}MB)"
+            )
+            return
+        if fileSize > self.config["filesizeThresh"] * 1000000:
+            aiofiles.open(path, "w").close()
+            self.skipfiles.append(
+                f"{self.courseCode[courseID]}{fileName} ({round(fileSize / 1000000, 2)}MB)"
+            )
+            return
+        self.newInfo.append(
+            f"{self.courseCode[courseID]}{fileName} ({round(fileSize / 1000000, 2)}MB)"
+        )
+        self.downloadSize += fileSize
+        self.newFiles.append((fileUrl, path))
+
+    async def getCourseTaskInfo(self, courseID):
+        folders, files = await self.getCourseFiles(courseID)
+        self.totalFileCount += len(files)
+        localFiles = self.prepareLocalFiles(courseID, folders)
+        await asyncio.gather(
+            *[
+                self.getCourseTaskInfoHelper(
+                    courseID, localFiles, fileName, fileUrl, fileModifiedTimeStamp
+                )
+                for fileName, (fileUrl, fileModifiedTimeStamp) in files.items()
+            ]
+        )
+
     def checkNewFiles(self):
 
         print("\rFinding files on Canvas...", end='')
@@ -486,7 +576,8 @@ class CanvasSyncer:
                 else:
                     path = os.path.join(
                         ntpath.dirname(path),
-                        f"{int(time.time())}_{ntpath.basename(path)}")
+                        f"{int(time.time())}_{ntpath.basename(path)}",
+                    )
                 laterFiles.append((fileUrl, path))
 
             except Exception as e:
@@ -519,6 +610,32 @@ def initConfig():
         oldConfig = json.load(open(CONFIG_PATH))
     elif os.path.exists("./canvassyncer.json"):
         oldConfig = json.load(open("./canvassyncer.json"))
+
+    def promptConfigStr(promptStr, key, *, defaultValOnMissing=None):
+        defaultVal = oldConfig.get(key)
+        if defaultVal is None:
+            if defaultValOnMissing is not None:
+                defaultVal = defaultValOnMissing
+            else:
+                defaultVal = ""
+        elif isinstance(defaultVal, list):
+            defaultVal = " ".join((str(val) for val in defaultVal))
+        defaultVal = str(defaultVal)
+        if defaultValOnMissing is not None:
+            defaultValOnRemove = defaultValOnMissing
+        else:
+            defaultValOnRemove = ""
+        tipStr = f"(Default: {defaultVal})" if defaultVal else ""
+        tipRemove = "(If you input remove, value will become " + (
+            f"{defaultValOnRemove})" if defaultValOnRemove != "" else "empty)"
+        )
+        res = input(f"{promptStr}{tipStr}{tipRemove}: ").strip()
+        if not res:
+            res = defaultVal
+        elif res == "remove":
+            res = defaultValOnRemove
+        return res
+
     print("Generating new config file...")
 
     url = input("Canvas URL (Default: https://umich.instructure.com):").strip()
@@ -556,8 +673,8 @@ def initConfig():
         f"Maximum file size to download(MB){tipStr}:").strip()
 
     try:
-        filesizeThresh = float(filesizeThresh)
-    except:
+        filesizeThresh = float(filesizeThreshStr)
+    except Exception:
         filesizeThresh = 250
 
     json.dump(
