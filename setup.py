@@ -35,10 +35,10 @@ setup(
     name='canvassyncer',
     version='1.3.1',
     description='Utility to sync course files from Canvas',
-    url='https://github.com/pl-mich/Canvas-Syncer',
+    url='https://github.com/peijli/Canvas-Syncer',
     author='Peijing Li',
-    organization='Engineering Student Government, University of Michigan',
-    author_email='peijli@umich.edu',
+    organization='Stanford University',
+    author_email='peli@stanford.edu',
     packages=find_packages(),
     python_requires=">=3.6",
     entry_points={
@@ -47,8 +47,8 @@ setup(
         ],
     },
     project_urls={
-        'Bug Reports': 'https://github.com/pl-mich/Canvas-Syncer/issues',
-        'Source': 'https://github.com/pl-mich/Canvas-Syncer',
+        'Bug Reports': 'https://github.com/peijli/Canvas-Syncer/issues',
+        'Source': 'https://github.com/peijli/Canvas-Syncer',
     },
     install_requires=["httpx", "aiofiles", "tqdm"],
 )
