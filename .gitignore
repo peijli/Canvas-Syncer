@@ -11,6 +11,7 @@ __pycache__/
 # due to using tox and pytest
 .tox
 .cache
+.pytest_cache
 
 settings.json
 .canvassyncer.json
@@ -20,6 +21,7 @@ settings.json
 __pycache__
 courses/
 venv/
+.venv/
 upload.sh
 dist.py
 *.spec
@@ -27,3 +29,4 @@ dist.py
 accesstoken
 canvas.log
 venv
+.DS_Store

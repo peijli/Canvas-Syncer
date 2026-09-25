@@ -1,8 +1,4 @@
-requests~=2.24.0
-tqdm~=4.47.0
-setuptools~=49.2.0
-canvassyncer~=1.2.10
-urllib3~=1.25.9
-aiofiles==24.1.0
-httpx==0.28.1
-tqdm==4.67.1
+httpx>=0.27
+keyring>=25
+tqdm>=4.66
+pytest>=8

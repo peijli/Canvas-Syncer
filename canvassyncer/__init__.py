@@ -1,5 +1,3 @@
-from canvassyncer.__main__ import run
+"""Utility to sync course files from Canvas LMS."""
 
-
-def main():
-    run()
+__version__ = "3.0.0"

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canvassyncer"
+version = "3.0.0"
+description = "Sync course files from Canvas LMS to a local directory"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Peijing Li", email = "peijli@umich.edu" }]
+dependencies = [
+    "httpx>=0.27",
+    "keyring>=25",
+    "tqdm>=4.66",
+]
+
+[project.urls]
+Homepage = "https://github.com/pl-mich/Canvas-Syncer"
+Issues = "https://github.com/pl-mich/Canvas-Syncer/issues"
+
+[project.scripts]
+canvassyncer = "canvassyncer.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["canvassyncer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
